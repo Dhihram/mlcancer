@@ -1,0 +1,310 @@
+---
+title: "Prediksi faktor risiko Rekurensi Ameloblastoma"
+date: '2023-02-19'
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r, message=FALSE, warning=FALSE}
+library(caret)
+library(tidyverse)
+library(rpart)
+library(rattle)
+library(ipred)
+library(plyr)
+library(e1071)
+library(randomForest)
+library(readxl)
+library(dplyr)
+library(wesanderson)
+```
+
+
+```{r setup, echo=FALSE}
+setwd("~/kak wawan/manendra")
+dataku <- read_excel("dataku xlsx.xlsx")
+```
+
+# Data Preparasi
+
+## Mengubah Jenis Data
+Di sini akan dilakukan preparasi/<i>cleaning</i> data, pertama dengan mengganti numerik ke kategorik
+
+```{r}
+dataku<-dataku[-1]
+dataku$JK <- ifelse(dataku$JK == 0, "Laki-laki", "Perempuan")
+dataku$JK <- factor(dataku$JK, levels = c("Laki-laki", "Perempuan"))
+levels(dataku$JK)
+dataku$Lokasi <- ifelse(dataku$Lokasi == 0, "Multilokular", "Unilokular")
+dataku$Lokasi <- factor(dataku$Lokasi, levels = c("Multilokular", "Unilokular"))
+levels(dataku$Lokasi)
+dataku$Perluasan <- ifelse(dataku$Perluasan == 0, "Stage_2", "Stage_1")
+dataku$Perluasan <- factor(dataku$Perluasan, levels = c("Stage_2", "Stage_1"))
+levels(dataku$Perluasan)
+dataku$Radiografis <- ifelse(dataku$Radiografis == 0, "Multilokular", "Unilokular")
+dataku$Radiografis <- factor(dataku$Lokasi, levels = c("Multilokular", "Unilokular"))
+levels(dataku$Radiografis)
+dataku$Histopatologis <- ifelse(dataku$Histopatologis == 0, "Folikular",
+                                ifelse(dataku$Histopatologis == 1, "Pleksiform",
+                                       ifelse(dataku$Histopatologis == 2, "Akantomatosa",
+                                              ifelse(dataku$Histopatologis == 3, "Desmoplastik",
+                                                     ifelse(dataku$Histopatologis == 4, "Campuran",
+                                                            "Unikistik")))))
+dataku$Histopatologis <- factor(dataku$Histopatologis, levels = c("Folikular", "Pleksiform", "Akantomatosa", "Desmoplastik", "Campuran",
+                                                                  "Unikistik"))
+levels(dataku$Histopatologis)
+dataku$Modalitasperawatan <- ifelse(dataku$Modalitasperawatan == 0, "Konservatif", "Radikal")
+dataku$Modalitasperawatan <- factor(dataku$Modalitasperawatan, levels = c("Konservatif", "Radikal"))
+levels(dataku$Modalitasperawatan)
+dataku$Rekurensi <- ifelse(dataku$Rekurensi == 0, "Rekuren", "Tidak_Rekuren")
+dataku$Rekurensi <- factor(dataku$Rekurensi, levels = c("Rekuren", "Tidak_Rekuren"))
+levels(dataku$Rekurensi)
+dataku$Usia <- ifelse(dataku$Usia == 0, "<=20tahun", ifelse(dataku$Usia == 1, "21-40tahun", "41-60tahun"))
+dataku$Usia <- factor(dataku$Usia, levels = c("<=20tahun", "21-40tahun", "41-60tahun"))
+levels(dataku$Usia)
+```
+
+## Mengecek Data
+
+```{r}
+# melihat 6 data pertama
+DT::datatable(head(dataku,20))
+
+# Dimensi data
+dim(dataku)
+
+# tipe variabel
+str(dataku)
+
+# cek missing value
+colSums(is.na(dataku))
+```
+
+## Melihat Sebaran Data
+
+Melihat dari tabel 2x2 dan <i> bar chart </i>
+
+```{r}
+#Rekurensi-Usia
+table(dataku$Usia, dataku$Rekurensi)
+ggplot(dataku, aes(x=Usia, fill=Rekurensi)) + 
+  geom_bar(colour = "black", alpha = 0.4) + 
+  ggtitle("Rekurensi by Usia", ) +
+  theme(plot.title = element_text(hjust = 0.4)) +
+  geom_text(stat = "count", aes(label =..count..), position=position_stack(vjust=0.5)) +
+  scale_fill_manual(values = wes_palette("GrandBudapest2")) + theme_minimal()
+
+#Rekurensi-Jenis Kelamin
+table(dataku$JK, dataku$Rekurensi)
+ggplot(dataku, aes(x=Lokasi, fill=Rekurensi)) + 
+  geom_bar(colour = "black", alpha = 0.4) +
+  ggtitle("Rekurensi by Lokasi", ) +
+  theme(plot.title = element_text(hjust = 0.4)) +
+  geom_text(stat = "count", aes(label =..count..), position=position_stack(vjust=0.5)) +
+  scale_fill_manual(values = wes_palette("GrandBudapest1")) + theme_minimal()
+
+#Rekurensi-Perluasan
+table(dataku$Perluasan, dataku$Rekurensi)
+ggplot(dataku, aes(x=Perluasan, fill=Rekurensi)) + 
+  geom_bar(colour = "black", alpha = 0.4) +
+  ggtitle("Rekurensi by Perluasan", ) +
+  theme(plot.title = element_text(hjust = 0.4)) +
+  geom_text(stat = "count", aes(label =..count..), position=position_stack(vjust=0.5)) +
+  scale_fill_manual(values = wes_palette("FantasticFox1")) + theme_minimal()
+
+#Rekurensi-Radiografis
+table(dataku$Radiografis, dataku$Rekurensi)
+ggplot(dataku, aes(x=Radiografis, fill=Rekurensi)) + 
+  geom_bar(colour = "black", alpha = 0.4) +
+  ggtitle("Rekurensi by Radiografis", ) +
+  theme(plot.title = element_text(hjust = 0.4)) +
+  geom_text(stat = "count", aes(label =..count..), position=position_stack(vjust=0.5)) +
+  scale_fill_manual(values = wes_palette("GrandBudapest2")) + theme_minimal() 
+
+#Rekurensi-Histopatologis
+table(dataku$Histopatologis, dataku$Rekurensi)
+ggplot(dataku, aes(x=Histopatologis, fill=Rekurensi)) + 
+  geom_bar(colour = "black", alpha = 0.4) +
+  ggtitle("Rekurensi by Histopatologis", ) +
+  theme(plot.title = element_text(hjust = 0.4)) + 
+  geom_text(stat = "count", aes(label =..count..), position=position_stack(vjust=0.5)) +
+  scale_fill_manual(values = wes_palette("GrandBudapest1")) + theme_minimal()
+
+#Rekurensi-Modalitasperawatan
+table(dataku$Modalitasperawatan, dataku$Rekurensi)
+ggplot(dataku, aes(x=Modalitasperawatan, fill=Rekurensi)) + 
+  geom_bar(colour = "black", alpha = 0.4) +
+  ggtitle("Rekurensi by Modalitasperawatan", ) +
+  theme(plot.title = element_text(hjust = 0.4)) +
+  geom_text(stat = "count", aes(label =..count..), position=position_stack(vjust=0.5)) +
+  scale_fill_manual(values = wes_palette("FantasticFox1")) + theme_minimal()
+```
+
+## Partisi Data
+
+Partisi data akan menggunakan proporsi 80% untuk <i> training </i> dan 20% untuk <i> testing</i>. (1)
+
+```{r}
+# set nilai random generator
+set.seed(1234)
+
+# membagi data 80% training, 20% testing
+bagi <- createDataPartition(dataku$Rekurensi, p = 0.8, list=F) 
+training<- dataku[bagi,]
+testing<- dataku[-bagi,]
+
+# dimensi data training
+dim(training)
+
+# summary deskriptif
+summary(training)
+
+# Proporsi rekurensi
+prop.table(table(training$Rekurensi))
+```
+
+# Proses Data
+
+## Metode Validasi dengan <i>K-Fold Cross-Validation</i> 5 Lipat
+
+Umumnya, <i>cross-validation</i> yang digunakan adalah 10 kali lipat, namun karena sampel kecil, pada uji ini dilakukan 5 kali lipatan.(2)
+
+```{r}
+control <- trainControl(method = "cv", number = 5, classProbs = TRUE)
+```
+
+## Regresi Logistik
+
+Pada hasil uji regresi logistik, didapatkan bahwa Modalitasperawatan jenis Radikal signifikan secara statistik, dengan peluang sebesar 5.031 untuk mengalami rekurensi. Model ini sendiri memiliki akurasi sebesar 78.9 persen.
+
+
+````{r}
+modelrl<-train(Rekurensi~., data=training, 
+               method="glm", trControl=control)
+
+# summary
+modelrl
+summary(modelrl)
+
+# akurasi setiap fold
+modelrl$resample
+
+# final model
+modelrl$finalModel
+
+# prediksi
+testing$predrl <- predict(modelrl, newdata=testing)
+DT::datatable(head(testing))
+
+# akurasi model
+confusionMatrix(testing$predrl, testing$Rekurensi, positive="Rekuren")
+
+# melihat variabel importance
+varImp(modelrl)
+importance <- varImp(modelrl)
+plot(importance)
+```
+
+## Deicision Tree
+
+Pada hasil uji <i>decision tree</i> didapatkan Modalitasperawatan yang Radikal satu-satunya variabel yang dapat masuk dalam uji ini. Didapatkan bahwa 96 persen dari rekuren sesuai dengan asumsi <i>training</i>, sedangkan pada tidak rekuren didapatkan ketepatan sebesar 87 persen. Modalitasperawatan yang Radikal menjadi variabel terpenting dalam uji ini.
+
+````{r}
+modeldt<-train(Rekurensi~., data=training, 
+               method="rpart", trControl=control, tuneLength = 5)
+# summary
+modeldt
+
+# akurasi setiap fold
+modeldt$resample
+
+# final model
+modeldt$finalModel
+
+# menampilkan plot decision tree
+library(rattle)
+fancyRpartPlot(modeldt$finalModel, 3)
+
+# prediksi
+testing$preddt <- predict(modeldt, newdata=testing)
+DT::datatable(head(testing))
+
+# akurasi model
+confusionMatrix(testing$preddt, testing$Rekurensi, positive="Rekuren")
+
+# melihat variabel importance
+varImp(modeldt)
+importance <- varImp(modeldt)
+plot(importance)
+```
+
+## Random Forest
+
+Di sini bisa dilihat bahwa <i>random forest</i> menghasilkan akurasi di atas 85 persen, dengan Modalitasperawatan yang Radikal menjadi variabel terpenting.
+
+````{r}
+modelrf<-train(Rekurensi~., data=training, 
+               method="rf", trControl=control, tuneLength = 100)
+
+# summary
+modelrf
+
+# akurasi setiap fold
+modelrf$resample
+
+# final model
+modelrf$finalModel
+
+# prediksi
+testing$predrf <- predict(modelrf, newdata=testing)
+DT::datatable(head(testing))
+# akurasi model
+confusionMatrix(testing$predrf, testing$Rekurensi, positive="Rekuren")
+
+# melihat variabel importance
+varImp(modelrf)
+importance <- varImp(modelrf)
+plot(importance)
+```
+
+# Komparasi Model
+
+## Mengecek Akurasi Masing-Masing Model
+Kesemua model di sini memiliki akurasi yang cukup tinggi (>70 persen), namun perlu diingat bahwa sampel dalam uji ini jumlahnya kecil (97 sampel), dengan <i>testing</i> sebesar 19 sampel. Sehingga sebaiknya dilakukan peningkatan dalam jumlah sampel.
+
+````{r}
+model_list <- list(LogisticRegression = modelrl,
+                   DecisionTree = modeldt,
+                   RandomForest = modelrf)
+res <- resamples(model_list)
+summary(res)
+```
+
+## Melihat Perbadingan di <i>Forest Plot </i>
+
+Di sini bisa dilihat bahwa <i>decision tree</i> adalah metode terbaik dalam melakukan prediksi pada data di studi ini, dengan menggunakan median sebagai nilai tengah.
+
+````{r}
+sample_data <- data.frame(study=c('Regresi Logistik', 'Decision Tree', 'Random Forest'),
+                          index=1:3,
+                          median=c(0.87, 0.94, 0.87),
+                          error_lower=c(0.81, 0.92, 0.86),
+                          error_upper=c(0.88, 0.95, 0.93))
+ggplot(sample_data, aes(x=study, y=median, ymin=error_lower, ymax=error_upper)) + 
+  geom_linerange(size=1.5,position=position_dodge(width = 0.5), color = 'steelblue') +
+  geom_point(size=4, shape=21, fill="steelblue", stroke = 0.5,position=position_dodge(width = 0.5)) +
+  ggtitle("Akurasi Berdasar Jenis Uji ML", ) +
+  scale_x_discrete(name="Jenis Uji ML") +
+  scale_y_continuous(name="Akurasi", limits = c(0.8,0.99 )) +
+  coord_flip() +
+  theme_minimal()
+```
+
+# Daftar Pustaka
+
+1. Korjus K, Hebart MN, Vicente R. An Efficient Data Partitioning to Improve Classification Performance While Keeping Parameters Interpretable. PLoS One. 2016;11(8):e0161788. Published 2016 Aug 26. doi:10.1371/journal.pone.0161788
+2. Browniee J, How to Configure k-Fold Cross-Validation, https://machinelearningmastery.com/how-to-configure-k-fold-cross-validation/
+
+<div class="tocify-extend-page" data-unique="tocify-extend-page" style="height: 0;"></div>
